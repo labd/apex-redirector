@@ -22,6 +22,7 @@ RUN adduser -S apexredirector
 USER apexredirector
 WORKDIR /app
 COPY --from=build-env /go/src/labdigital.nl/apexredirector/apexredirector /app/
-ENTRYPOINT ./apexredirector
+
+ENTRYPOINT ["./apexredirector"]
 
 EXPOSE 8080 8443
