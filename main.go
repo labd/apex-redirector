@@ -17,13 +17,17 @@ import (
 	vhost "github.com/inconshreveable/go-vhost"
 )
 
-type Options struct {
+type options struct {
 	bindHTTP  string
 	bindHTTPS string
 	secret    string
 }
 
-func parseArgs() *Options {
+type Server struct {
+	options *options
+}
+
+func parseArgs() *options {
 	var bindHTTP, bindHTTPS, secret string
 	secretEnv := os.Getenv("APEXREDIRECTOR_SECRET")
 
@@ -39,22 +43,22 @@ func parseArgs() *Options {
 		}
 	}
 
-	return &Options{
+	return &options{
 		bindHTTP:  bindHTTP,
 		bindHTTPS: bindHTTPS,
 		secret:    secret,
 	}
 }
 
-func startHTTPProxy(opts *Options) error {
-	listener, err := net.Listen("tcp", opts.bindHTTP)
+func (s Server) startHTTPProxy() error {
+	listener, err := net.Listen("tcp", s.options.bindHTTP)
 	if err != nil {
-		log.Fatalf("Unable to bind HTTP on %s (\"%s\")", opts.bindHTTP, err)
+		log.Fatalf("Unable to bind HTTP on %s (\"%s\")", s.options.bindHTTP, err)
 		return err
 	}
 	defer listener.Close()
 
-	log.Printf("HTTP proxy listing on %s", opts.bindHTTP)
+	log.Printf("HTTP proxy listing on %s", s.options.bindHTTP)
 
 	for {
 
@@ -74,21 +78,21 @@ func startHTTPProxy(opts *Options) error {
 				return
 			}
 			defer vhostConn.Close()
-			proxyConnection(opts, vhostConn, vhostConn.Host(), 80)
+			s.proxyConnection(vhostConn, vhostConn.Host(), 80)
 		}(conn)
 
 	}
 }
 
-func startHTTPSProxy(opts *Options) error {
-	listener, err := net.Listen("tcp", opts.bindHTTPS)
+func (s Server) startHTTPSProxy() error {
+	listener, err := net.Listen("tcp", s.options.bindHTTPS)
 	if err != nil {
-		log.Fatalf("Unable to bind HTTP on %s (\"%s\")", opts.bindHTTPS, err)
+		log.Fatalf("Unable to bind HTTP on %s (\"%s\")", s.options.bindHTTPS, err)
 		return err
 	}
 	defer listener.Close()
 
-	log.Printf("HTTPS proxy listing on %s", opts.bindHTTPS)
+	log.Printf("HTTPS proxy listing on %s", s.options.bindHTTPS)
 
 	for {
 		// accept a new connection
@@ -109,12 +113,12 @@ func startHTTPSProxy(opts *Options) error {
 			}
 			defer vhostConn.Close()
 
-			proxyConnection(opts, vhostConn, vhostConn.Host(), 443)
+			s.proxyConnection(vhostConn, vhostConn.Host(), 443)
 		}(conn)
 	}
 }
 
-func getTargetHost(opts *Options, address string, defaultPort int) (string, error) {
+func (s Server) getTargetHost(address string, defaultPort int) (string, error) {
 	var host string
 	var port string
 
@@ -136,7 +140,7 @@ func getTargetHost(opts *Options, address string, defaultPort int) (string, erro
 
 	// Validate that we are allowed to proxy to the host. This is done by
 	// comparing a HMAC key on the TXT record
-	redirectKey := createHmac256(host, opts.secret)
+	redirectKey := createHmac256(host, s.options.secret)
 	lookupHostname = fmt.Sprintf("_apexredirector.%s", host)
 	addresses, err = net.LookupTXT(lookupHostname)
 	if err != nil || addresses[0] != redirectKey {
@@ -159,9 +163,9 @@ func getTargetHost(opts *Options, address string, defaultPort int) (string, erro
 	return dest, nil
 }
 
-func proxyConnection(opts *Options, srcConn net.Conn, srcAddr string, dstPort int) error {
+func (s Server) proxyConnection(srcConn net.Conn, srcAddr string, dstPort int) error {
 
-	dstAddr, err := getTargetHost(opts, srcAddr, dstPort)
+	dstAddr, err := s.getTargetHost(srcAddr, dstPort)
 	if err != nil {
 		log.Printf("No proxy target found for %s", srcAddr)
 		return err
@@ -187,6 +191,12 @@ func proxyConnection(opts *Options, srcConn net.Conn, srcAddr string, dstPort in
 	return nil
 }
 
+func (s Server) start() {
+	log.Print("Starting apexredirector..")
+	go s.startHTTPProxy()
+	s.startHTTPSProxy()
+}
+
 func createHmac256(message string, secret string) string {
 	key := []byte(secret)
 	h := hmac.New(sha256.New, key)
@@ -197,7 +207,8 @@ func createHmac256(message string, secret string) string {
 func main() {
 	opts := parseArgs()
 
-	log.Print("Starting apexredirector..")
-	go startHTTPProxy(opts)
-	startHTTPSProxy(opts)
+	server := Server{
+		options: opts,
+	}
+	server.start()
 }
