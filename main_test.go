@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseArgs(t *testing.T) {
-	os.Args = []string{"./apexredirector", "--secret", "geheim"}
+	os.Args = []string{"./apex-redirector", "--secret", "geheim"}
 	result := parseArgs()
 
 	expected := &options{

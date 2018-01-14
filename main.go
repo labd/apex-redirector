@@ -141,12 +141,12 @@ func (s Server) getTargetHost(address string, defaultPort int) (string, error) {
 	// Validate that we are allowed to proxy to the host. This is done by
 	// comparing a HMAC key on the TXT record
 	redirectKey := createHmac256(host, s.options.secret)
-	lookupHostname = fmt.Sprintf("_apexredirector.%s", host)
+	lookupHostname = fmt.Sprintf("_apex-redirector.%s", host)
 	addresses, err = net.LookupTXT(lookupHostname)
 	if err != nil || addresses[0] != redirectKey {
 		err := errors.New("No matching TXT record")
 		log.Printf(
-			"Error: Proxy request not allowed - expected TXT record _apexredirector.%s with value %s",
+			"Error: Proxy request not allowed - expected TXT record _apex-redirector.%s with value %s",
 			host, redirectKey)
 		return "", err
 	}
@@ -192,7 +192,7 @@ func (s Server) proxyConnection(srcConn net.Conn, srcAddr string, dstPort int) e
 }
 
 func (s Server) start() {
-	log.Print("Starting apexredirector..")
+	log.Print("Starting apex-redirector..")
 	go s.startHTTPProxy()
 	s.startHTTPSProxy()
 }
