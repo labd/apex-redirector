@@ -1,6 +1,10 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,22 +18,32 @@ import (
 )
 
 type Options struct {
-	bindHTTPS string
 	bindHTTP  string
+	bindHTTPS string
+	secret    string
 }
 
-func parseArgs() (*Options, error) {
-	var bindHTTP string
-	var bindHTTPS string
+func parseArgs() *Options {
+	var bindHTTP, bindHTTPS, secret string
+	secretEnv := os.Getenv("APEXREDIRECTOR_SECRET")
 
 	flag.StringVar(&bindHTTP, "bindHTTP", "127.0.0.1:8080", "The HTTP address to listen on")
 	flag.StringVar(&bindHTTPS, "bindHTTPS", "127.0.0.1:8443", "The HTTPS address to listen on")
+	flag.StringVar(&secret, "secret", "", "The secret token to validate proxy requests")
 	flag.Parse()
+
+	if secret == "" {
+		secret = secretEnv
+		if secret == "" {
+			log.Fatal("Please supply a secret (--secret)")
+		}
+	}
 
 	return &Options{
 		bindHTTP:  bindHTTP,
 		bindHTTPS: bindHTTPS,
-	}, nil
+		secret:    secret,
+	}
 }
 
 func startHTTPProxy(opts *Options) error {
@@ -60,7 +74,7 @@ func startHTTPProxy(opts *Options) error {
 				return
 			}
 			defer vhostConn.Close()
-			proxyConnection(vhostConn, vhostConn.Host(), 80)
+			proxyConnection(opts, vhostConn, vhostConn.Host(), 80)
 		}(conn)
 
 	}
@@ -95,12 +109,12 @@ func startHTTPSProxy(opts *Options) error {
 			}
 			defer vhostConn.Close()
 
-			proxyConnection(vhostConn, vhostConn.Host(), 443)
+			proxyConnection(opts, vhostConn, vhostConn.Host(), 443)
 		}(conn)
 	}
 }
 
-func getTargetHost(address string, defaultPort int) (string, error) {
+func getTargetHost(opts *Options, address string, defaultPort int) (string, error) {
 	var host string
 	var port string
 
@@ -116,8 +130,26 @@ func getTargetHost(address string, defaultPort int) (string, error) {
 		port = strconv.Itoa(defaultPort)
 	}
 
-	lookupHostname := fmt.Sprintf("www.%s", host)
-	addresses, err := net.LookupHost(lookupHostname)
+	var lookupHostname string
+	var addresses []string
+	var err error
+
+	// Validate that we are allowed to proxy to the host. This is done by
+	// comparing a HMAC key on the TXT record
+	redirectKey := createHmac256(host, opts.secret)
+	lookupHostname = fmt.Sprintf("_apexredirector.%s", host)
+	addresses, err = net.LookupTXT(lookupHostname)
+	if err != nil || addresses[0] != redirectKey {
+		err := errors.New("No matching TXT record")
+		log.Printf(
+			"Error: Proxy request not allowed - expected TXT record _apexredirector.%s with value %s",
+			host, redirectKey)
+		return "", err
+	}
+
+	lookupHostname = fmt.Sprintf("www.%s", host)
+	addresses, err = net.LookupHost(lookupHostname)
+
 	if err != nil {
 		log.Println(err)
 		return "", err
@@ -127,9 +159,9 @@ func getTargetHost(address string, defaultPort int) (string, error) {
 	return dest, nil
 }
 
-func proxyConnection(srcConn net.Conn, srcAddr string, dstPort int) error {
+func proxyConnection(opts *Options, srcConn net.Conn, srcAddr string, dstPort int) error {
 
-	dstAddr, err := getTargetHost(srcAddr, dstPort)
+	dstAddr, err := getTargetHost(opts, srcAddr, dstPort)
 	if err != nil {
 		log.Printf("No proxy target found for %s", srcAddr)
 		return err
@@ -155,12 +187,15 @@ func proxyConnection(srcConn net.Conn, srcAddr string, dstPort int) error {
 	return nil
 }
 
+func createHmac256(message string, secret string) string {
+	key := []byte(secret)
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(message))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
 func main() {
-	opts, err := parseArgs()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	opts := parseArgs()
 
 	log.Print("Starting apexredirector..")
 	go startHTTPProxy(opts)
