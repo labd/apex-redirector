@@ -14,11 +14,11 @@ It is required to host this application on a server with a static ip address
 # How it works
 
 The apex-redirector first checks the value of the TXT record
-_apex_redirector.<domain> to see if it is allowed to act as a proxy. It uses
+``_apex_redirector.<domain>`` to see if it is allowed to act as a proxy. It uses
 hmac 256 to see if the value matches the apex domain + secret key. If it a
-match it then opens a connection to www.<domain> and forwards the tcp request
+match it then opens a connection to ``www.<domain>`` and forwards the tcp request
 there (so it acts as a proxy!). The HTTP hostname header is not altered so your
-target application should always redirect the user manually to www.<domain>
+target application should always redirect the user manually to ``www.<domain>``
 
 The TXT value is a base64 encoded sha256 hmac key, use for example
 http://dinochiesa.github.io/hmachash.html to calculate it.
