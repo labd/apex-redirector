@@ -73,11 +73,13 @@ func (s Server) startHTTPProxy() error {
 			var vhostConn *vhost.HTTPConn
 
 			// parse out the HTTP request and the Host header
-			if vhostConn, err = vhost.HTTP(conn); err != nil {
-				log.Print("Invalid HTTP connection")
+			vhostConn, err = vhost.HTTP(conn)
+
+			defer vhostConn.Free()
+			defer vhostConn.Close()
+			if err != nil {
 				return
 			}
-			defer vhostConn.Close()
 			s.proxyConnection(vhostConn, vhostConn.Host(), 80)
 		}(conn)
 
@@ -96,8 +98,10 @@ func (s Server) startHTTPSProxy() error {
 
 	for {
 		// accept a new connection
-		conn, _ := listener.Accept()
+		conn, err := listener.Accept()
+
 		if err != nil {
+			conn.Close()
 			continue
 		}
 
@@ -107,14 +111,16 @@ func (s Server) startHTTPSProxy() error {
 			var vhostConn *vhost.TLSConn
 
 			// parse out the HTTP request and the Host header
-			if vhostConn, err = vhost.TLS(conn); err != nil {
-				log.Print("Invalid TLS connection")
+			vhostConn, err = vhost.TLS(conn)
+
+			defer vhostConn.Free()
+			defer vhostConn.Close()
+			if err != nil {
 				return
 			}
-			defer vhostConn.Close()
-
 			s.proxyConnection(vhostConn, vhostConn.Host(), 443)
 		}(conn)
+
 	}
 }
 
