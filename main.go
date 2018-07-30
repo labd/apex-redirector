@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -149,7 +150,7 @@ func (s Server) getTargetHost(address string, defaultPort int) (string, error) {
 	redirectKey := createHmac256(host, s.options.secret)
 	lookupHostname = fmt.Sprintf("_apex-redirector.%s", host)
 	addresses, err = net.LookupTXT(lookupHostname)
-	if err != nil || addresses[0] != redirectKey {
+	if err != nil || !SecureCompare(redirectKey, addresses[0]) {
 		err := errors.New("No matching TXT record")
 		log.Printf(
 			"Error: Proxy request not allowed - expected TXT record _apex-redirector.%s with value %s",
@@ -167,6 +168,14 @@ func (s Server) getTargetHost(address string, defaultPort int) (string, error) {
 
 	dest := fmt.Sprintf("%s:%s", addresses[0], port)
 	return dest, nil
+}
+
+func SecureCompare(lft string, rgt string) bool {
+	if subtle.ConstantTimeEq(int32(len(lft)), int32(len(rgt))) == 1 {
+		return subtle.ConstantTimeCompare([]byte(lft), []byte(rgt)) == 1
+	} else {
+		return subtle.ConstantTimeCompare([]byte(lft), []byte(rgt)) == 1 && false
+	}
 }
 
 func (s Server) proxyConnection(srcConn net.Conn, srcAddr string, dstPort int) error {
