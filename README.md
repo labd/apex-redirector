@@ -22,3 +22,11 @@ target application should always redirect the user manually to ``www.<domain>``
 
 The TXT value is a base64 encoded sha256 hmac key, use for example
 http://dinochiesa.github.io/hmachash.html to calculate it.
+
+# How to generate a dns record
+
+```
+go build
+./apex-redirector --secret verysecretstring --hostname example.com
+>>> '_apex-redirector.example.com' TEXT '1eD4CAaII5bzIAk+yYMFpvaILIenS7dS4cbuQRqdXc0='
+```

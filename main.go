@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -17,10 +18,13 @@ import (
 	vhost "github.com/inconshreveable/go-vhost"
 )
 
+const validationDomain = "_apex-redirector.%s"
+
 type options struct {
 	bindHTTP  string
 	bindHTTPS string
 	secret    string
+	hostname  string
 }
 
 type Server struct {
@@ -28,12 +32,13 @@ type Server struct {
 }
 
 func parseArgs() *options {
-	var bindHTTP, bindHTTPS, secret string
+	var bindHTTP, bindHTTPS, secret, hostname string
 	secretEnv := os.Getenv("APEXREDIRECTOR_SECRET")
 
 	flag.StringVar(&bindHTTP, "bindHTTP", "127.0.0.1:8080", "The HTTP address to listen on")
 	flag.StringVar(&bindHTTPS, "bindHTTPS", "127.0.0.1:8443", "The HTTPS address to listen on")
 	flag.StringVar(&secret, "secret", "", "The secret token to validate proxy requests")
+	flag.StringVar(&hostname, "hostname", "", "Create dns record for hostname")
 	flag.Parse()
 
 	if secret == "" {
@@ -47,6 +52,7 @@ func parseArgs() *options {
 		bindHTTP:  bindHTTP,
 		bindHTTPS: bindHTTPS,
 		secret:    secret,
+		hostname:  hostname,
 	}
 }
 
@@ -147,9 +153,9 @@ func (s Server) getTargetHost(address string, defaultPort int) (string, error) {
 	// Validate that we are allowed to proxy to the host. This is done by
 	// comparing a HMAC key on the TXT record
 	redirectKey := createHmac256(host, s.options.secret)
-	lookupHostname = fmt.Sprintf("_apex-redirector.%s", host)
+	lookupHostname = fmt.Sprintf(validationDomain, host)
 	addresses, err = net.LookupTXT(lookupHostname)
-	if err != nil || addresses[0] != redirectKey {
+	if err != nil || !secureCompare(redirectKey, addresses[0]) {
 		err := errors.New("No matching TXT record")
 		log.Printf(
 			"Error: Proxy request not allowed - expected TXT record _apex-redirector.%s with value %s",
@@ -167,6 +173,13 @@ func (s Server) getTargetHost(address string, defaultPort int) (string, error) {
 
 	dest := fmt.Sprintf("%s:%s", addresses[0], port)
 	return dest, nil
+}
+
+func secureCompare(lft string, rgt string) bool {
+	if subtle.ConstantTimeEq(int32(len(lft)), int32(len(rgt))) == 1 {
+		return subtle.ConstantTimeCompare([]byte(lft), []byte(rgt)) == 1
+	}
+	return subtle.ConstantTimeCompare([]byte(lft), []byte(rgt)) == 1 && false
 }
 
 func (s Server) proxyConnection(srcConn net.Conn, srcAddr string, dstPort int) error {
@@ -213,8 +226,14 @@ func createHmac256(message string, secret string) string {
 func main() {
 	opts := parseArgs()
 
-	server := Server{
-		options: opts,
+	if opts.hostname != "" {
+		redirectKey := createHmac256(opts.hostname, opts.secret)
+		lookupHostname := fmt.Sprintf(validationDomain, opts.hostname)
+		log.Printf("'%s' TEXT '%s'", lookupHostname, redirectKey)
+	} else {
+		server := Server{
+			options: opts,
+		}
+		server.start()
 	}
-	server.start()
 }
