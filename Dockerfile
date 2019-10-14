@@ -1,9 +1,9 @@
 # build stage
-FROM golang:1.9-alpine AS build-env
+FROM golang:1.13-alpine AS build-env
 
 RUN apk add --no-cache curl git
 
-RUN curl -fsSL -o /usr/local/bin/dep https://github.com/golang/dep/releases/download/v0.3.2/dep-linux-amd64 && chmod +x /usr/local/bin/dep
+RUN curl -fsSL -o /usr/local/bin/dep https://github.com/golang/dep/releases/download/v0.5.4/dep-linux-amd64 && chmod +x /usr/local/bin/dep
 
 WORKDIR /go/src/labdigital.nl/apexredirector
 
